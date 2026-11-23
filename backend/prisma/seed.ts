@@ -7,7 +7,7 @@ async function main() {
   console.log('Seeding initial data...');
 
   // Delete existing data
-  await prisma.otpCode.deleteMany();
+  await prisma.photo.deleteMany();
   await prisma.comment.deleteMany();
   await prisma.scan.deleteMany();
   await prisma.item.deleteMany();

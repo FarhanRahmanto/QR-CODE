@@ -2,8 +2,6 @@ import { apiClient, withFallback, TOKEN_KEY } from './api-client';
 import * as mock from '@/mock/handlers';
 import type { LoginInput, RegisterInput, UpdateProfileInput, User } from '@/types';
 
-type OtpPurpose = 'login' | 'register' | 'change-phone';
-
 function saveToken(token?: string) {
   if (token) localStorage.setItem(TOKEN_KEY, token);
 }
@@ -35,17 +33,6 @@ export const authService = {
       () => mock.mockRegister(input)
     ),
 
-  /** Minta OTP. Saat backend dalam mode dev, `devCode` berisi kode OTP-nya. */
-  requestOTP: (phone: string, purpose: OtpPurpose = 'login'): Promise<{ success: boolean; devCode?: string }> =>
-    withFallback(
-      () =>
-        apiClient<{ success: boolean; devCode?: string }>('/auth/otp/request', {
-          method: 'POST',
-          body: JSON.stringify({ phone, purpose }),
-        }),
-      async () => ({ ...(await mock.mockRequestOTP(phone)), devCode: '123456' })
-    ),
-
   getMe: async (): Promise<User> => {
     const res = await apiClient<{ user: User }>('/auth/me');
     return res.user;
@@ -63,10 +50,11 @@ export const authService = {
       () => mock.mockUpdateUser({ name: data.name, phone: data.phone, email: data.email })
     ),
 
-  deleteAccount: (): Promise<void> =>
+  /** Hapus akun permanen — wajib konfirmasi kata sandi */
+  deleteAccount: (password: string): Promise<void> =>
     withFallback(
       async () => {
-        await apiClient('/auth/me', { method: 'DELETE' });
+        await apiClient('/auth/me', { method: 'DELETE', body: JSON.stringify({ password }) });
       },
       async () => undefined
     ),

@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: temubarang-api
+    runtime: node
+    plan: free
+    rootDir: backend
+    buildCommand: npm install && npm run build:prod
+    startCommand: npm run start:prod
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: JWT_SECRET
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false # Isi manual dengan connection string Neon PostgreSQL
+      - key: FRONTEND_URL
+        sync: false # Isi dengan URL Vercel (mis. https://temubarang.vercel.app)
+      - key: APP_URL
+        sync: false # Sama dengan FRONTEND_URL (dipakai di link QR stiker)
+      - key: TRUST_PROXY
+        value: "2"

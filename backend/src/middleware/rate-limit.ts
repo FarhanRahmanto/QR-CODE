@@ -1,11 +1,12 @@
 import rateLimit from 'express-rate-limit';
 
-function limiter(windowMinutes: number, limit: number, message: string) {
+function limiter(windowMinutes: number, limit: number, message: string, skipSuccessfulRequests = false) {
   return rateLimit({
     windowMs: windowMinutes * 60 * 1000,
     limit,
     standardHeaders: 'draft-7',
     legacyHeaders: false,
+    skipSuccessfulRequests,
     message: { error: message },
   });
 }
@@ -16,8 +17,13 @@ export const scanLimiter = limiter(15, 120, 'Terlalu banyak permintaan. Coba lag
 /** PRD NFR: rate limiting form komentar penemu */
 export const commentLimiter = limiter(10, 5, 'Terlalu banyak laporan terkirim. Coba lagi dalam 10 menit.');
 
-/** Batasi permintaan OTP per IP agar tidak disalahgunakan untuk spam WhatsApp */
-export const otpLimiter = limiter(15, 5, 'Terlalu banyak permintaan kode OTP. Coba lagi dalam 15 menit.');
+/** Anti brute-force: hanya percobaan GAGAL yang dihitung (10 kali / 15 menit per IP) */
+export const loginLimiter = limiter(
+  15,
+  10,
+  'Terlalu banyak percobaan dengan kata sandi salah. Coba lagi dalam 15 menit.',
+  true
+);
 
-/** Batasi percobaan login/registrasi (anti brute-force) */
-export const authLimiter = limiter(15, 30, 'Terlalu banyak percobaan login. Coba lagi dalam 15 menit.');
+/** Batasi pembuatan akun massal */
+export const registerLimiter = limiter(60, 10, 'Terlalu banyak pendaftaran dari jaringan ini. Coba lagi nanti.');

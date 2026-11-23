@@ -10,27 +10,11 @@ let scans: Scan[] = [...initialMockScans];
 
 export async function mockLogin(input: LoginInput): Promise<User> {
   await delay(400);
-  if (input.mode === 'phone') {
-    if (input.otp !== '123456' && input.otp?.length !== 6) {
-      throw new Error('Kode OTP tidak valid');
-    }
-    currentUser = { ...currentUser, phone: input.phone || currentUser.phone };
-    return currentUser;
-  } else {
-    if (!input.email || !input.password) {
-      throw new Error('Email dan password harus diisi');
-    }
-    currentUser = {
-      ...currentUser,
-      email: input.email,
-    };
-    return currentUser;
+  if (!input.email || !input.password) {
+    throw new Error('Email dan kata sandi wajib diisi');
   }
-}
-
-export async function mockRequestOTP(phone: string): Promise<{ success: boolean }> {
-  await delay(300);
-  return { success: true };
+  currentUser = { ...currentUser, email: input.email };
+  return currentUser;
 }
 
 export async function mockRegister(input: RegisterInput): Promise<User> {
@@ -42,7 +26,7 @@ export async function mockRegister(input: RegisterInput): Promise<User> {
     id: `usr_${Date.now()}`,
     name: input.name,
     phone: input.phone,
-    email: input.email || undefined,
+    email: input.email,
     createdAt: new Date().toISOString(),
   };
   return currentUser;

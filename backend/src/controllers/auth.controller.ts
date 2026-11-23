@@ -4,10 +4,9 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma';
 import { normalizePhone } from '../lib/phone';
 import { sanitizeText } from '../lib/sanitize';
-import { issueOtp, verifyOtp } from '../lib/otp';
 import { clearAuthCookie, sendAuthResponse, toPublicUser } from '../lib/auth-token';
 import { HttpError, parseBody } from '../lib/http';
-import { deleteLocalPhoto } from '../middleware/upload';
+import { deletePhoto } from '../middleware/upload';
 import type { AuthRequest } from '../middleware/auth';
 
 const phoneField = z
@@ -21,118 +20,66 @@ const phoneField = z
     return phone;
   });
 
-const optionalEmail = z
-  .string()
+const emailField = z
+  .string({ message: 'Email wajib diisi.' })
   .trim()
   .toLowerCase()
-  .optional()
-  .transform((v) => (v ? v : undefined))
-  .refine((v) => !v || z.string().email().safeParse(v).success, { message: 'Format email tidak valid.' });
+  .min(1, 'Email wajib diisi.')
+  .max(120)
+  .refine((v) => z.string().email().safeParse(v).success, { message: 'Format email tidak valid.' });
 
-const passwordField = z.string().min(6, 'Kata sandi minimal 6 karakter.').max(100);
+const passwordField = z
+  .string({ message: 'Kata sandi wajib diisi.' })
+  .min(8, 'Kata sandi minimal 8 karakter.')
+  .max(100, 'Kata sandi maksimal 100 karakter.');
 
 // ---------------------------------------------------------------------------
-// OTP
+// Registrasi & Login (email + kata sandi)
 // ---------------------------------------------------------------------------
 
-const otpRequestSchema = z.object({
+const registerSchema = z.object({
+  name: z.string({ message: 'Nama wajib diisi.' }).trim().min(2, 'Nama minimal 2 karakter.').max(80),
+  email: emailField,
+  password: passwordField,
   phone: phoneField,
-  purpose: z.enum(['login', 'register', 'change-phone']).default('login'),
 });
-
-export async function requestOTP(req: Request, res: Response): Promise<void> {
-  const { phone, purpose } = parseBody(otpRequestSchema, req.body);
-  const existing = await prisma.user.findUnique({ where: { phone } });
-
-  if (purpose === 'login' && !existing) {
-    throw new HttpError(404, 'Nomor WhatsApp belum terdaftar. Silakan daftar terlebih dahulu.');
-  }
-  if (purpose !== 'login' && existing) {
-    throw new HttpError(409, 'Nomor WhatsApp sudah terdaftar di akun lain.');
-  }
-
-  const { devCode } = await issueOtp(phone);
-  res.json({
-    success: true,
-    message: 'Kode OTP telah dikirim ke WhatsApp Anda.',
-    ...(devCode ? { devCode } : {}),
-  });
-}
-
-const otpVerifySchema = z.object({ phone: phoneField, otp: z.string().trim() });
-
-async function loginWithOtp(res: Response, phoneInput: unknown, otpInput: unknown): Promise<void> {
-  const { phone, otp } = parseBody(otpVerifySchema, { phone: phoneInput, otp: otpInput ?? '' });
-
-  const user = await prisma.user.findUnique({ where: { phone } });
-  if (!user) throw new HttpError(404, 'Nomor WhatsApp belum terdaftar. Silakan daftar terlebih dahulu.');
-
-  await verifyOtp(phone, otp);
-  sendAuthResponse(res, user, 'Login berhasil');
-}
-
-/** POST /api/auth/otp/verify — login via OTP WhatsApp (sesuai PRD 6.2) */
-export async function verifyOTP(req: Request, res: Response): Promise<void> {
-  await loginWithOtp(res, req.body?.phone, req.body?.otp);
-}
-
-// ---------------------------------------------------------------------------
-// Registrasi & Login
-// ---------------------------------------------------------------------------
-
-const registerSchema = z
-  .object({
-    name: z.string().trim().min(2, 'Nama minimal 2 karakter.').max(80, 'Nama maksimal 80 karakter.'),
-    phone: phoneField,
-    email: optionalEmail,
-    password: passwordField.optional().or(z.literal('').transform(() => undefined)),
-    otp: z.string().trim().optional(),
-  })
-  .refine((d) => !d.password || d.email, {
-    message: 'Email wajib diisi jika ingin login dengan kata sandi.',
-  });
 
 export async function register(req: Request, res: Response): Promise<void> {
   const data = parseBody(registerSchema, req.body);
 
+  if (await prisma.user.findUnique({ where: { email: data.email } })) {
+    throw new HttpError(409, 'Alamat email sudah terdaftar. Silakan masuk.');
+  }
   if (await prisma.user.findUnique({ where: { phone: data.phone } })) {
-    throw new HttpError(409, 'Nomor WhatsApp sudah terdaftar. Silakan masuk.');
+    throw new HttpError(409, 'Nomor WhatsApp sudah dipakai akun lain.');
   }
-  if (data.email && (await prisma.user.findUnique({ where: { email: data.email } }))) {
-    throw new HttpError(409, 'Alamat email sudah terdaftar.');
-  }
-
-  // Jika OTP disertakan, verifikasi kepemilikan nomor saat registrasi
-  if (data.otp) await verifyOtp(data.phone, data.otp);
 
   const user = await prisma.user.create({
     data: {
       name: sanitizeText(data.name, 80),
+      email: data.email,
+      password: await bcrypt.hash(data.password, 10),
       phone: data.phone,
-      email: data.email ?? null,
-      password: data.password ? await bcrypt.hash(data.password, 10) : null,
     },
   });
 
   sendAuthResponse(res, user, 'Registrasi berhasil', 201);
 }
 
-const emailLoginSchema = z.object({
+const loginSchema = z.object({
   email: z.string({ message: 'Email wajib diisi.' }).trim().toLowerCase().min(1, 'Email wajib diisi.'),
   password: z.string({ message: 'Kata sandi wajib diisi.' }).min(1, 'Kata sandi wajib diisi.'),
 });
 
-export async function login(req: Request, res: Response): Promise<void> {
-  if (req.body?.mode !== 'email') {
-    await loginWithOtp(res, req.body?.phone, req.body?.otp);
-    return;
-  }
+// Hash palsu agar waktu respons sama saat email tidak terdaftar (cegah enumerasi akun)
+const DUMMY_HASH = bcrypt.hashSync('dummy-password-for-timing', 10);
 
-  const { email, password } = parseBody(emailLoginSchema, req.body);
+export async function login(req: Request, res: Response): Promise<void> {
+  const { email, password } = parseBody(loginSchema, req.body);
   const user = await prisma.user.findUnique({ where: { email } });
 
-  // Pesan sama untuk email tidak ada / password salah (cegah enumerasi akun)
-  if (!user || !user.password || !(await bcrypt.compare(password, user.password))) {
+  const valid = await bcrypt.compare(password, user?.password ?? DUMMY_HASH);
+  if (!user || !valid) {
     throw new HttpError(401, 'Email atau kata sandi tidak sesuai.');
   }
 
@@ -154,6 +101,15 @@ async function getCurrentUser(req: AuthRequest) {
   return user;
 }
 
+async function requirePassword(hash: string, password: unknown, action: string): Promise<void> {
+  if (typeof password !== 'string' || !password) {
+    throw new HttpError(400, `Masukkan kata sandi saat ini untuk ${action}.`);
+  }
+  if (!(await bcrypt.compare(password, hash))) {
+    throw new HttpError(401, 'Kata sandi saat ini tidak sesuai.');
+  }
+}
+
 export async function getMe(req: AuthRequest, res: Response): Promise<void> {
   const user = await getCurrentUser(req);
   res.json({ user: toPublicUser(user) });
@@ -161,72 +117,61 @@ export async function getMe(req: AuthRequest, res: Response): Promise<void> {
 
 const updateMeSchema = z.object({
   name: z.string().trim().min(2, 'Nama minimal 2 karakter.').max(80).optional(),
+  email: emailField.optional(),
   phone: phoneField.optional(),
-  otp: z.string().trim().optional(),
-  email: z
-    .string()
-    .trim()
-    .toLowerCase()
-    .optional()
-    .refine((v) => !v || z.string().email().safeParse(v).success, { message: 'Format email tidak valid.' }),
   currentPassword: z.string().optional(),
   newPassword: passwordField.optional(),
 });
 
-/** PATCH /api/auth/me — ubah nama, nomor WhatsApp (wajib OTP), email, dan kata sandi */
+/**
+ * PATCH /api/auth/me
+ * - Nama: bebas diubah.
+ * - Email, nomor WhatsApp, dan kata sandi: wajib konfirmasi kata sandi saat ini.
+ */
 export async function updateMe(req: AuthRequest, res: Response): Promise<void> {
   const user = await getCurrentUser(req);
   const data = parseBody(updateMeSchema, req.body);
-  const update: { name?: string; phone?: string; email?: string | null; password?: string } = {};
+  const update: { name?: string; email?: string; phone?: string; password?: string } = {};
 
   if (data.name !== undefined) update.name = sanitizeText(data.name, 80);
 
-  if (data.phone && data.phone !== user.phone) {
-    if (await prisma.user.findUnique({ where: { phone: data.phone } })) {
+  const emailChanged = data.email !== undefined && data.email !== user.email;
+  const phoneChanged = data.phone !== undefined && data.phone !== user.phone;
+
+  if (emailChanged || phoneChanged || data.newPassword) {
+    await requirePassword(user.password, data.currentPassword, 'mengubah data keamanan akun');
+  }
+
+  if (emailChanged) {
+    if (await prisma.user.findUnique({ where: { email: data.email! } })) {
+      throw new HttpError(409, 'Alamat email sudah dipakai akun lain.');
+    }
+    update.email = data.email;
+  }
+
+  if (phoneChanged) {
+    if (await prisma.user.findUnique({ where: { phone: data.phone! } })) {
       throw new HttpError(409, 'Nomor WhatsApp sudah dipakai akun lain.');
     }
-    if (!data.otp) {
-      throw new HttpError(400, 'Verifikasi OTP diperlukan untuk mengganti nomor WhatsApp.');
-    }
-    await verifyOtp(data.phone, data.otp);
     update.phone = data.phone;
   }
 
-  if (data.email !== undefined) {
-    const email = data.email || null;
-    if (email && email !== user.email && (await prisma.user.findUnique({ where: { email } }))) {
-      throw new HttpError(409, 'Alamat email sudah dipakai akun lain.');
-    }
-    update.email = email;
-  }
-
-  if (data.newPassword) {
-    if (user.password) {
-      if (!data.currentPassword || !(await bcrypt.compare(data.currentPassword, user.password))) {
-        throw new HttpError(401, 'Kata sandi saat ini tidak sesuai.');
-      }
-    }
-    if (!(update.email ?? user.email)) {
-      throw new HttpError(400, 'Tambahkan email terlebih dahulu agar bisa login dengan kata sandi.');
-    }
-    update.password = await bcrypt.hash(data.newPassword, 10);
-  }
+  if (data.newPassword) update.password = await bcrypt.hash(data.newPassword, 10);
 
   const updated = await prisma.user.update({ where: { id: user.id }, data: update });
   res.json({ message: 'Profil berhasil diperbarui.', user: toPublicUser(updated) });
 }
 
-/** DELETE /api/auth/me — PRD Kepatuhan: hapus akun beserta seluruh datanya */
+/** DELETE /api/auth/me — PRD Kepatuhan: hapus akun + seluruh data (wajib konfirmasi kata sandi) */
 export async function deleteMe(req: AuthRequest, res: Response): Promise<void> {
   const user = await getCurrentUser(req);
+  await requirePassword(user.password, req.body?.password, 'menghapus akun');
+
   const items = await prisma.item.findMany({ where: { ownerId: user.id }, select: { photoUrl: true } });
 
   // Barang, komentar, dan riwayat scan ikut terhapus (onDelete: Cascade)
-  await prisma.$transaction([
-    prisma.otpCode.deleteMany({ where: { phone: user.phone } }),
-    prisma.user.delete({ where: { id: user.id } }),
-  ]);
-  items.forEach((i) => deleteLocalPhoto(i.photoUrl));
+  await prisma.user.delete({ where: { id: user.id } });
+  await Promise.all(items.map((i) => deletePhoto(i.photoUrl)));
 
   clearAuthCookie(res);
   res.json({ success: true, message: 'Akun dan seluruh data Anda telah dihapus.' });

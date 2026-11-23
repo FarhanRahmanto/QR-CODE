@@ -10,11 +10,12 @@ import { errorHandler, notFoundHandler } from './middleware/error';
 import authRoutes from './routes/auth.routes';
 import itemsRoutes from './routes/items.routes';
 import publicRoutes from './routes/public.routes';
+import photosRoutes from './routes/photos.routes';
 
 const app = express();
 
-// Di belakang reverse proxy (Nginx/Dokploy) agar req.ip & rate limit akurat
-if (env.isProd) app.set('trust proxy', 1);
+// Di belakang reverse proxy (Vercel/Render/Nginx) agar req.ip & rate limit akurat
+app.set('trust proxy', env.TRUST_PROXY);
 app.disable('x-powered-by');
 
 app.use(
@@ -50,6 +51,7 @@ app.get('/api/health', async (_req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/items', itemsRoutes);
 app.use('/api/public', publicRoutes);
+app.use('/api/photos', photosRoutes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);
@@ -60,7 +62,7 @@ const server = app.listen(env.PORT, () => {
   console.log(`🏷️  URL QR     : ${env.APP_URL}/s/{kode}`);
   console.log(
     env.WHATSAPP_DEV_MODE
-      ? '📱 WhatsApp   : MODE DEV (pesan dicetak ke console, OTP = 123456)\n'
+      ? '📱 WhatsApp   : MODE DEV (notifikasi dicetak ke log server)\n'
       : '📱 WhatsApp   : terhubung ke gateway\n'
   );
 });

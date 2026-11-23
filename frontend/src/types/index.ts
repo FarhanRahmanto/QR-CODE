@@ -3,17 +3,15 @@ export type ItemStatus = 'SAFE' | 'LOST';
 export interface User {
   id: string;
   name: string;
-  phone: string; // Mandatory per user requirement
-  email?: string;
-  hasPassword?: boolean;
+  email: string; // dipakai untuk login
+  phone: string; // wajib: dihubungi penemu via WhatsApp & notifikasi scan
   createdAt: string;
 }
 
 export interface UpdateProfileInput {
   name?: string;
-  phone?: string;
-  otp?: string;
   email?: string;
+  phone?: string;
   currentPassword?: string;
   newPassword?: string;
 }
@@ -85,20 +83,14 @@ export interface CreateCommentInput {
   location?: string;
 }
 
-export type LoginMode = 'phone' | 'email';
-
 export interface LoginInput {
-  mode: LoginMode;
-  phone?: string;
-  otp?: string;
-  email?: string;
-  password?: string;
+  email: string;
+  password: string;
 }
 
 export interface RegisterInput {
   name: string;
-  phone: string; // Wajib: agar notifikasi WhatsApp ke pemilik selalu terhubung
-  email?: string;
-  password?: string;
-  otp?: string;
+  email: string;
+  password: string;
+  phone: string; // Wajib: agar penemu bisa menghubungi & notifikasi scan terkirim
 }

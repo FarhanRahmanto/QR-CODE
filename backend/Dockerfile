@@ -3,8 +3,9 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 COPY prisma ./prisma
+COPY scripts ./scripts
 # Ubah provider ke postgresql untuk produksi Docker
-RUN sed -i 's/provider = "sqlite"/provider = "postgresql"/' prisma/schema.prisma
+RUN node scripts/prepare-prod-schema.mjs
 RUN npx prisma generate
 COPY tsconfig.json ./
 COPY src ./src

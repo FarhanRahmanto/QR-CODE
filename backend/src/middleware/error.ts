@@ -1,7 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
 import multer from 'multer';
 import { HttpError } from '../lib/http';
-import { OtpError } from '../lib/otp';
 
 export function notFoundHandler(_req: Request, res: Response): void {
   res.status(404).json({ error: 'Endpoint tidak ditemukan.' });
@@ -9,7 +8,7 @@ export function notFoundHandler(_req: Request, res: Response): void {
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function errorHandler(err: unknown, req: Request, res: Response, _next: NextFunction): void {
-  if (err instanceof HttpError || err instanceof OtpError) {
+  if (err instanceof HttpError) {
     res.status(err.status).json({ error: err.message });
     return;
   }

@@ -1,19 +1,21 @@
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
-import crypto from 'crypto';
 import sharp from 'sharp';
 import type { Request, Response, NextFunction } from 'express';
+import { prisma } from '../lib/prisma';
 import { HttpError } from '../lib/http';
 
+/** Folder lama untuk foto berbasis file (tetap dilayani demi kompatibilitas) */
 export const UPLOADS_DIR = path.resolve(__dirname, '../../uploads');
 if (!fs.existsSync(UPLOADS_DIR)) {
   fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 }
 
 const ALLOWED_MIME = ['image/jpeg', 'image/png', 'image/webp'];
+const PHOTO_URL_RE = /^\/api\/photos\/([a-z0-9]+)$/i;
 
-/** PRD FR-07: JPG/PNG/WebP, maksimal 5 MB. File disimpan sementara di memori untuk dikompres. */
+/** PRD FR-07: JPG/PNG/WebP, maksimal 5 MB. File ditahan di memori untuk dikompres. */
 export const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024, files: 1 },
@@ -24,31 +26,45 @@ export const upload = multer({
 });
 
 /**
- * PRD FR-07: kompres otomatis. Gambar diputar sesuai EXIF, diperkecil maks 1280px,
- * dikonversi ke WebP (kualitas 80) dan metadata (termasuk lokasi GPS) dibuang.
+ * PRD FR-07: kompres otomatis lalu simpan di database (tabel Photo).
+ * Gambar diputar sesuai EXIF, diperkecil maks 1024px, dikonversi ke WebP kualitas 75,
+ * dan metadata (termasuk lokasi GPS) dibuang. URL hasil: res.locals.photoUrl
  */
-export async function processImage(req: Request, _res: Response, next: NextFunction): Promise<void> {
+export async function processImage(req: Request, res: Response, next: NextFunction): Promise<void> {
   if (!req.file) return next();
 
+  let data: Buffer;
   try {
-    const filename = `item_${Date.now()}_${crypto.randomBytes(6).toString('hex')}.webp`;
-    await sharp(req.file.buffer)
+    data = await sharp(req.file.buffer)
       .rotate()
-      .resize({ width: 1280, height: 1280, fit: 'inside', withoutEnlargement: true })
-      .webp({ quality: 80 })
-      .toFile(path.join(UPLOADS_DIR, filename));
+      .resize({ width: 1024, height: 1024, fit: 'inside', withoutEnlargement: true })
+      .webp({ quality: 75 })
+      .toBuffer();
+  } catch {
+    return next(new HttpError(400, 'File gambar rusak atau tidak dapat diproses.'));
+  }
 
-    req.file.filename = filename;
+  try {
+    const photo = await prisma.photo.create({ data: { data: new Uint8Array(data), mimeType: 'image/webp' } });
+    res.locals.photoUrl = `/api/photos/${photo.id}`;
     req.file.buffer = Buffer.alloc(0);
     next();
-  } catch {
-    next(new HttpError(400, 'File gambar rusak atau tidak dapat diproses.'));
+  } catch (err) {
+    next(err);
   }
 }
 
-/** Hapus foto lokal (/uploads/...) saat diganti atau barang/akun dihapus */
-export function deleteLocalPhoto(photoUrl: string | null | undefined): void {
-  if (!photoUrl || !photoUrl.startsWith('/uploads/')) return;
-  const filePath = path.join(UPLOADS_DIR, path.basename(photoUrl));
-  fs.promises.unlink(filePath).catch(() => undefined);
+/** Hapus foto saat diganti atau barang/akun dihapus */
+export async function deletePhoto(photoUrl: string | null | undefined): Promise<void> {
+  if (!photoUrl) return;
+
+  const match = PHOTO_URL_RE.exec(photoUrl);
+  if (match) {
+    await prisma.photo.deleteMany({ where: { id: match[1] } }).catch(() => undefined);
+    return;
+  }
+
+  if (photoUrl.startsWith('/uploads/')) {
+    await fs.promises.unlink(path.join(UPLOADS_DIR, path.basename(photoUrl))).catch(() => undefined);
+  }
 }

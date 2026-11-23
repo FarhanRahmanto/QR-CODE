@@ -38,8 +38,7 @@ export function toPublicUser(user: User) {
     id: user.id,
     name: user.name,
     phone: user.phone,
-    email: user.email ?? undefined,
-    hasPassword: !!user.password,
+    email: user.email,
     createdAt: user.createdAt,
   };
 }

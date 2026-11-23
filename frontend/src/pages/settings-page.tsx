@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useAuth } from '@/hooks/use-auth';
 import { useTheme } from '@/hooks/use-theme';
-import { authService } from '@/services/auth';
 import { getErrorMessage } from '@/services/api-client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,7 +9,6 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   AlertDialog,
-  AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
@@ -21,7 +19,7 @@ import {
 import { User, Sun, Moon, Trash2, ShieldAlert, Lock, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
-const normalize = (p: string) => {
+const normalizePhone = (p: string) => {
   const d = p.replace(/[^0-9]/g, '');
   if (d.startsWith('0')) return '62' + d.slice(1);
   if (d.startsWith('8')) return '62' + d;
@@ -34,10 +32,9 @@ export function SettingsPage() {
   const { theme, toggleTheme } = useTheme();
 
   const [name, setName] = useState(user?.name || '');
-  const [phone, setPhone] = useState(user?.phone || '');
   const [email, setEmail] = useState(user?.email || '');
-  const [otp, setOtp] = useState('');
-  const [otpSent, setOtpSent] = useState(false);
+  const [phone, setPhone] = useState(user?.phone || '');
+  const [profilePassword, setProfilePassword] = useState('');
   const [saving, setSaving] = useState(false);
 
   const [currentPassword, setCurrentPassword] = useState('');
@@ -45,29 +42,18 @@ export function SettingsPage() {
   const [savingPassword, setSavingPassword] = useState(false);
 
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deletePassword, setDeletePassword] = useState('');
   const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     setName(user?.name || '');
-    setPhone(user?.phone || '');
     setEmail(user?.email || '');
-  }, [user?.name, user?.phone, user?.email]);
+    setPhone(user?.phone || '');
+  }, [user?.name, user?.email, user?.phone]);
 
-  const phoneChanged = !!user && normalize(phone) !== user.phone;
-
-  const handleSendOtp = async () => {
-    try {
-      const res = await authService.requestOTP(phone, 'change-phone');
-      setOtpSent(true);
-      toast.success('Kode OTP dikirim ke nomor WhatsApp baru');
-      if (res.devCode) {
-        setOtp(res.devCode);
-        toast.info(`Mode pengembangan: kode OTP ${res.devCode}`);
-      }
-    } catch (err) {
-      toast.error(getErrorMessage(err, 'Gagal mengirim OTP'));
-    }
-  };
+  const emailChanged = !!user && email.trim().toLowerCase() !== (user.email || '').toLowerCase();
+  const phoneChanged = !!user && normalizePhone(phone) !== user.phone;
+  const needsPassword = emailChanged || phoneChanged;
 
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -75,19 +61,19 @@ export function SettingsPage() {
       toast.error('Nama tidak boleh kosong');
       return;
     }
-    if (phoneChanged && !otp.trim()) {
-      toast.error('Verifikasi nomor WhatsApp baru dengan kode OTP terlebih dahulu');
+    if (needsPassword && !profilePassword) {
+      toast.error('Masukkan kata sandi saat ini untuk mengubah email atau nomor WhatsApp');
       return;
     }
     setSaving(true);
     try {
       await updateUser({
-        name,
-        email: email.trim(),
-        ...(phoneChanged ? { phone, otp } : {}),
+        name: name.trim(),
+        ...(emailChanged ? { email: email.trim() } : {}),
+        ...(phoneChanged ? { phone } : {}),
+        ...(needsPassword ? { currentPassword: profilePassword } : {}),
       });
-      setOtp('');
-      setOtpSent(false);
+      setProfilePassword('');
       toast.success('Profil berhasil diperbarui');
     } catch (err) {
       toast.error(getErrorMessage(err, 'Gagal memperbarui profil'));
@@ -98,34 +84,43 @@ export function SettingsPage() {
 
   const handleSavePassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (newPassword.length < 6) {
-      toast.error('Kata sandi baru minimal 6 karakter');
+    if (!currentPassword) {
+      toast.error('Masukkan kata sandi saat ini');
+      return;
+    }
+    if (newPassword.length < 8) {
+      toast.error('Kata sandi baru minimal 8 karakter');
       return;
     }
     setSavingPassword(true);
     try {
-      await updateUser({ newPassword, currentPassword: currentPassword || undefined });
+      await updateUser({ currentPassword, newPassword });
       setCurrentPassword('');
       setNewPassword('');
-      toast.success('Kata sandi berhasil disimpan');
+      toast.success('Kata sandi berhasil diubah');
     } catch (err) {
-      toast.error(getErrorMessage(err, 'Gagal menyimpan kata sandi'));
+      toast.error(getErrorMessage(err, 'Gagal mengubah kata sandi'));
     } finally {
       setSavingPassword(false);
     }
   };
 
-  const handleDeleteAccount = async () => {
+  const handleDeleteAccount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!deletePassword) {
+      toast.error('Masukkan kata sandi untuk konfirmasi');
+      return;
+    }
     setDeleting(true);
     try {
-      await deleteAccount();
+      await deleteAccount(deletePassword);
       toast.success('Akun dan seluruh data Anda telah dihapus');
+      setDeleteOpen(false);
       navigate('/');
     } catch (err) {
       toast.error(getErrorMessage(err, 'Gagal menghapus akun'));
     } finally {
       setDeleting(false);
-      setDeleteOpen(false);
     }
   };
 
@@ -144,7 +139,8 @@ export function SettingsPage() {
             Informasi Profil
           </CardTitle>
           <CardDescription>
-            Nomor WhatsApp wajib dan digunakan untuk login OTP serta menerima notifikasi scan.
+            Email dipakai untuk login. Nomor WhatsApp dipakai agar penemu bisa menghubungi Anda dan untuk
+            notifikasi scan (tidak pernah ditampilkan ke publik).
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -155,50 +151,42 @@ export function SettingsPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="phone">Nomor WhatsApp</Label>
-              <div className="flex gap-2">
-                <Input
-                  id="phone"
-                  value={phone}
-                  onChange={(e) => {
-                    setPhone(e.target.value);
-                    setOtpSent(false);
-                    setOtp('');
-                  }}
-                  placeholder="08123456789"
-                />
-                {phoneChanged && (
-                  <Button type="button" variant="outline" onClick={handleSendOtp} className="shrink-0">
-                    {otpSent ? 'Kirim Ulang' : 'Kirim OTP'}
-                  </Button>
-                )}
-              </div>
-              {phoneChanged && otpSent && (
-                <Input
-                  value={otp}
-                  onChange={(e) => setOtp(e.target.value)}
-                  placeholder="Kode OTP 6 digit"
-                  maxLength={6}
-                  inputMode="numeric"
-                />
-              )}
-              {phoneChanged && (
-                <p className="text-xs text-muted-foreground">
-                  Mengganti nomor memerlukan verifikasi OTP ke nomor baru.
-                </p>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="email">Email (opsional, untuk login dengan kata sandi)</Label>
+              <Label htmlFor="email">Email (untuk login)</Label>
               <Input
                 id="email"
                 type="email"
+                autoComplete="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="nama@email.com"
               />
             </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="phone">Nomor WhatsApp (kontak untuk penemu)</Label>
+              <Input
+                id="phone"
+                type="tel"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder="08123456789"
+              />
+            </div>
+
+            {needsPassword && (
+              <div className="space-y-2 rounded-xl border border-amber-300/60 bg-amber-50/60 dark:bg-amber-950/20 p-3">
+                <Label htmlFor="profilePassword">Konfirmasi Kata Sandi Saat Ini</Label>
+                <Input
+                  id="profilePassword"
+                  type="password"
+                  autoComplete="current-password"
+                  value={profilePassword}
+                  onChange={(e) => setProfilePassword(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Demi keamanan, perubahan email atau nomor WhatsApp memerlukan kata sandi Anda.
+                </p>
+              </div>
+            )}
 
             <Button type="submit" disabled={saving}>
               {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
@@ -213,35 +201,31 @@ export function SettingsPage() {
         <CardHeader>
           <CardTitle className="text-lg flex items-center gap-2">
             <Lock className="h-5 w-5 text-primary" />
-            Kata Sandi
+            Ubah Kata Sandi
           </CardTitle>
-          <CardDescription>
-            {user?.hasPassword
-              ? 'Ubah kata sandi untuk login dengan email.'
-              : 'Buat kata sandi agar bisa login dengan email selain OTP WhatsApp.'}
-          </CardDescription>
+          <CardDescription>Gunakan minimal 8 karakter yang sulit ditebak.</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSavePassword} className="space-y-4">
-            {user?.hasPassword && (
-              <div className="space-y-2">
-                <Label htmlFor="currentPassword">Kata Sandi Saat Ini</Label>
-                <Input
-                  id="currentPassword"
-                  type="password"
-                  value={currentPassword}
-                  onChange={(e) => setCurrentPassword(e.target.value)}
-                />
-              </div>
-            )}
+            <div className="space-y-2">
+              <Label htmlFor="currentPassword">Kata Sandi Saat Ini</Label>
+              <Input
+                id="currentPassword"
+                type="password"
+                autoComplete="current-password"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+              />
+            </div>
             <div className="space-y-2">
               <Label htmlFor="newPassword">Kata Sandi Baru</Label>
               <Input
                 id="newPassword"
                 type="password"
+                autoComplete="new-password"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
-                placeholder="Minimal 6 karakter"
+                placeholder="Minimal 8 karakter"
               />
             </div>
             <Button type="submit" variant="outline" disabled={savingPassword}>
@@ -280,7 +264,7 @@ export function SettingsPage() {
             Zona Bahaya
           </CardTitle>
           <CardDescription>
-            Menghapus akun akan menghapus seluruh data barang, stiker QR, dan riwayat laporan secara permanen.
+            Menghapus akun akan menghapus seluruh data barang, foto, stiker QR, dan riwayat laporan secara permanen.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -292,25 +276,37 @@ export function SettingsPage() {
       </Card>
 
       {/* Delete Confirmation */}
-      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+      <AlertDialog
+        open={deleteOpen}
+        onOpenChange={(open) => {
+          setDeleteOpen(open);
+          if (!open) setDeletePassword('');
+        }}
+      >
         <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Hapus Akun Secara Permanen?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Tindakan ini tidak dapat dibatalkan. Seluruh data barang, stiker QR, dan laporan Anda akan dihapus dari
-              sistem.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Batal</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleDeleteAccount}
-              disabled={deleting}
-              className="bg-red-600 hover:bg-red-700"
-            >
-              {deleting ? 'Menghapus...' : 'Hapus Akun'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
+          <form onSubmit={handleDeleteAccount} className="space-y-4">
+            <AlertDialogHeader>
+              <AlertDialogTitle>Hapus Akun Secara Permanen?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Tindakan ini tidak dapat dibatalkan. Masukkan kata sandi Anda untuk konfirmasi.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <Input
+              type="password"
+              autoComplete="current-password"
+              placeholder="Kata sandi"
+              value={deletePassword}
+              onChange={(e) => setDeletePassword(e.target.value)}
+              autoFocus
+            />
+            <AlertDialogFooter>
+              <AlertDialogCancel type="button">Batal</AlertDialogCancel>
+              <Button type="submit" variant="destructive" disabled={deleting}>
+                {deleting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Hapus Akun
+              </Button>
+            </AlertDialogFooter>
+          </form>
         </AlertDialogContent>
       </AlertDialog>
     </div>

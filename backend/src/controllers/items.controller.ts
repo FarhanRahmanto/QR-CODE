@@ -6,7 +6,7 @@ import { prisma } from '../lib/prisma';
 import { env } from '../lib/env';
 import { sanitizeOptional, sanitizeText, toBool } from '../lib/sanitize';
 import { HttpError, param, parseBody } from '../lib/http';
-import { deleteLocalPhoto } from '../middleware/upload';
+import { deletePhoto } from '../middleware/upload';
 import type { AuthRequest } from '../middleware/auth';
 
 // Tanpa karakter ambigu (0/O, 1/l/I) agar mudah dibaca jika dicetak
@@ -125,13 +125,13 @@ export async function createItem(req: AuthRequest, res: Response): Promise<void>
         ...data,
         publicCode: await generatePublicCode(),
         ownerId: req.user!.userId,
-        photoUrl: req.file ? `/uploads/${req.file.filename}` : null,
+        photoUrl: (res.locals.photoUrl as string | undefined) ?? null,
         status: 'SAFE',
       },
     });
     res.status(201).json({ ...item, publicUrl: publicUrl(item.publicCode), unreadComments: 0 });
   } catch (err) {
-    if (req.file) deleteLocalPhoto(`/uploads/${req.file.filename}`);
+    await deletePhoto(res.locals.photoUrl);
     throw err;
   }
 }
@@ -141,7 +141,7 @@ export async function updateItem(req: AuthRequest, res: Response): Promise<void>
   try {
     existing = await findOwnedItem(req);
   } catch (err) {
-    if (req.file) deleteLocalPhoto(`/uploads/${req.file.filename}`);
+    await deletePhoto(res.locals.photoUrl);
     throw err;
   }
 
@@ -156,7 +156,7 @@ export async function updateItem(req: AuthRequest, res: Response): Promise<void>
   });
 
   let photoUrl = existing.photoUrl;
-  if (req.file) photoUrl = `/uploads/${req.file.filename}`;
+  if (res.locals.photoUrl) photoUrl = res.locals.photoUrl as string;
   else if (toBool(req.body.removePhoto)) photoUrl = null;
 
   const updated = await prisma.item.update({
@@ -164,7 +164,7 @@ export async function updateItem(req: AuthRequest, res: Response): Promise<void>
     data: { ...data, photoUrl },
   });
 
-  if (photoUrl !== existing.photoUrl) deleteLocalPhoto(existing.photoUrl);
+  if (photoUrl !== existing.photoUrl) await deletePhoto(existing.photoUrl);
   res.json({ ...updated, publicUrl: publicUrl(updated.publicCode) });
 }
 
@@ -185,7 +185,7 @@ export async function toggleStatus(req: AuthRequest, res: Response): Promise<voi
 export async function deleteItem(req: AuthRequest, res: Response): Promise<void> {
   const existing = await findOwnedItem(req);
   await prisma.item.delete({ where: { id: existing.id } });
-  deleteLocalPhoto(existing.photoUrl);
+  await deletePhoto(existing.photoUrl);
   res.json({ success: true, message: 'Barang berhasil dihapus.' });
 }
 
