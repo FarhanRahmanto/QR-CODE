@@ -25,12 +25,14 @@ async function generatePublicCode(): Promise<string> {
 
 export function publicUrl(code: string, req?: AuthRequest): string {
   const configured = env.APP_URL.replace(/\/$/, '');
-  if (configured && !configured.includes('localhost')) {
+  if (configured && !configured.includes('localhost') && !configured.includes('.services.vercel-infra.com')) {
     return `${configured}/s/${code}`;
   }
-  const host = req?.get('host');
-  if (env.isProd && host) {
-    return `${req?.protocol || 'https'}://${host}/s/${code}`;
+  const forwardedHost = req?.headers['x-forwarded-host'];
+  const rawHost = (Array.isArray(forwardedHost) ? forwardedHost[0] : forwardedHost) || req?.get('host');
+  if (rawHost && !rawHost.includes('.services.vercel-infra.com')) {
+    const proto = (req?.headers['x-forwarded-proto'] as string) || req?.protocol || 'https';
+    return `${proto}://${rawHost}/s/${code}`;
   }
   return `${configured}/s/${code}`;
 }

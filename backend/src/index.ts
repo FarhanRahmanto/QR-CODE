@@ -25,12 +25,15 @@ app.use(
   })
 );
 
-const allowedOrigins = new Set([
-  env.FRONTEND_URL,
-  env.APP_URL,
-  'http://localhost:5173',
-  'http://127.0.0.1:5173',
-]);
+const allowedOrigins = new Set(
+  [
+    env.FRONTEND_URL,
+    env.APP_URL,
+    env.INTERNAL_FRONTEND_URL,
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+  ].filter(Boolean)
+);
 
 app.use(
   cors({

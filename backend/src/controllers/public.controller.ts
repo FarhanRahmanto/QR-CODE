@@ -133,7 +133,8 @@ export async function redirectToWhatsapp(req: Request, res: Response): Promise<v
   if (!item || !item.allowWhatsapp) {
     // Navigasi browser: kembalikan ke halaman scan, bukan JSON mentah
     if (req.accepts(['html', 'json']) === 'html') {
-      res.redirect(`${env.FRONTEND_URL}/s/${code}?wa=disabled`);
+      const target = process.env.VERCEL ? `/s/${code}?wa=disabled` : `${env.FRONTEND_URL}/s/${code}?wa=disabled`;
+      res.redirect(target);
       return;
     }
     throw new HttpError(403, 'Pemilik tidak mengaktifkan fitur kontak via WhatsApp.');
