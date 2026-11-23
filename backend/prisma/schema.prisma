@@ -1,0 +1,81 @@
+// Development memakai SQLite. Untuk produksi (PostgreSQL), Dockerfile otomatis
+// mengganti provider menjadi "postgresql" saat build.
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id        String   @id @default(cuid())
+  name      String
+  phone     String   @unique
+  email     String?  @unique
+  password  String?
+  items     Item[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+}
+
+model Item {
+  id             String    @id @default(cuid())
+  publicCode     String    @unique
+  ownerId        String
+  owner          User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  ownerName      String
+  itemName       String
+  photoUrl       String?
+  description    String
+  ownerMessage   String?
+  status         String    @default("SAFE") // "SAFE" | "LOST"
+  allowWhatsapp  Boolean   @default(false)
+  allowComments  Boolean   @default(true) // PRD P5: form laporan bisa dinonaktifkan
+  lastNotifiedAt DateTime?
+  comments       Comment[]
+  scans          Scan[]
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([ownerId])
+}
+
+model Comment {
+  id         String   @id @default(cuid())
+  itemId     String
+  item       Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  finderName String?
+  message    String
+  location   String?
+  isRead     Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  @@index([itemId])
+}
+
+model Scan {
+  id        String   @id @default(cuid())
+  itemId    String
+  item      Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  ipHash    String?
+  userAgent String?
+  latitude  Float?
+  longitude Float?
+  createdAt DateTime @default(now())
+
+  @@index([itemId])
+}
+
+// Kode OTP WhatsApp (disimpan dalam bentuk hash, berlaku 5 menit)
+model OtpCode {
+  id        String   @id @default(cuid())
+  phone     String
+  codeHash  String
+  attempts  Int      @default(0)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([phone])
+}
