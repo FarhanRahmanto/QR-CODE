@@ -23,8 +23,16 @@ async function generatePublicCode(): Promise<string> {
   throw new HttpError(500, 'Gagal membuat kode unik. Silakan coba lagi.');
 }
 
-export function publicUrl(code: string): string {
-  return `${env.APP_URL.replace(/\/$/, '')}/s/${code}`;
+export function publicUrl(code: string, req?: AuthRequest): string {
+  const configured = env.APP_URL.replace(/\/$/, '');
+  if (configured && !configured.includes('localhost')) {
+    return `${configured}/s/${code}`;
+  }
+  const host = req?.get('host');
+  if (env.isProd && host) {
+    return `${req?.protocol || 'https'}://${host}/s/${code}`;
+  }
+  return `${configured}/s/${code}`;
 }
 
 async function findOwnedItem(req: AuthRequest) {
@@ -103,7 +111,7 @@ export async function getItemById(req: AuthRequest, res: Response): Promise<void
 
   res.json({
     ...item,
-    publicUrl: publicUrl(item.publicCode),
+    publicUrl: publicUrl(item.publicCode, req),
     unreadComments: item.comments.filter((c) => !c.isRead).length,
   });
 }
@@ -129,7 +137,7 @@ export async function createItem(req: AuthRequest, res: Response): Promise<void>
         status: 'SAFE',
       },
     });
-    res.status(201).json({ ...item, publicUrl: publicUrl(item.publicCode), unreadComments: 0 });
+    res.status(201).json({ ...item, publicUrl: publicUrl(item.publicCode, req), unreadComments: 0 });
   } catch (err) {
     await deletePhoto(res.locals.photoUrl);
     throw err;
@@ -165,7 +173,7 @@ export async function updateItem(req: AuthRequest, res: Response): Promise<void>
   });
 
   if (photoUrl !== existing.photoUrl) await deletePhoto(existing.photoUrl);
-  res.json({ ...updated, publicUrl: publicUrl(updated.publicCode) });
+  res.json({ ...updated, publicUrl: publicUrl(updated.publicCode, req) });
 }
 
 /** PATCH /api/items/:id/status — body { status: "SAFE" | "LOST" } opsional; tanpa body = toggle */
@@ -196,13 +204,13 @@ export async function regenerateCode(req: AuthRequest, res: Response): Promise<v
     where: { id: existing.id },
     data: { publicCode: await generatePublicCode() },
   });
-  res.json({ ...updated, publicUrl: publicUrl(updated.publicCode) });
+  res.json({ ...updated, publicUrl: publicUrl(updated.publicCode, req) });
 }
 
 /** GET /api/items/:id/qr?format=png|svg&size=1024&download=1 — PRD FR-08 stiker siap cetak */
 export async function getQrCode(req: AuthRequest, res: Response): Promise<void> {
   const item = await findOwnedItem(req);
-  const url = publicUrl(item.publicCode);
+  const url = publicUrl(item.publicCode, req);
   const format = req.query.format === 'svg' ? 'svg' : 'png';
   const size = Math.min(Math.max(Number(req.query.size) || 1024, 128), 2048);
   const safeName = item.itemName.replace(/[^a-zA-Z0-9-_]+/g, '-').slice(0, 40) || 'barang';

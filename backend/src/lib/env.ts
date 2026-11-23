@@ -12,8 +12,14 @@ if (isProd && (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32)) {
 
 const WHATSAPP_API_TOKEN = process.env.WHATSAPP_API_TOKEN || '';
 
+const vercelHost = process.env.VERCEL_PROJECT_PRODUCTION_URL || process.env.VERCEL_URL;
+const defaultFrontendUrl = vercelHost ? `https://${vercelHost}` : 'http://localhost:5173';
+
 function parseTrustProxy(value: string | undefined): number | boolean {
-  if (value === undefined || value === '') return isProd ? 2 : false;
+  if (value === undefined || value === '') {
+    if (process.env.VERCEL) return 1;
+    return isProd ? 2 : false;
+  }
   if (value === 'true') return true;
   if (value === 'false') return false;
   const n = Number(value);
@@ -25,14 +31,13 @@ export const env = {
   isProd,
   PORT: Number(process.env.PORT) || 3000,
   /** URL frontend, dipakai untuk CORS dan link di notifikasi */
-  FRONTEND_URL: (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, ''),
-  /** URL publik yang tercetak di QR stiker: {APP_URL}/s/{code} */
-  APP_URL: (process.env.APP_URL || process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, ''),
+  FRONTEND_URL: (process.env.FRONTEND_URL || defaultFrontendUrl).replace(/\/$/, ''),
+  /** URL publik yang tercetak di QR stiker: {APP_URL}/s/{kode} */
+  APP_URL: (process.env.APP_URL || process.env.FRONTEND_URL || defaultFrontendUrl).replace(/\/$/, ''),
   JWT_SECRET,
   JWT_EXPIRES_DAYS: 30,
   /**
-   * Jumlah proxy di depan server. Production default 2 (Vercel rewrite → proxy Render)
-   * agar IP asli pengunjung terbaca untuk rate limit & hash IP scan.
+   * Jumlah proxy di depan server agar IP asli pengunjung terbaca untuk rate limit & hash IP scan.
    */
   TRUST_PROXY: parseTrustProxy(process.env.TRUST_PROXY),
   WHATSAPP_API_TOKEN,

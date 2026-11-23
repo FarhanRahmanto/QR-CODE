@@ -1,4 +1,5 @@
 import multer from 'multer';
+import os from 'os';
 import path from 'path';
 import fs from 'fs';
 import sharp from 'sharp';
@@ -6,10 +7,17 @@ import type { Request, Response, NextFunction } from 'express';
 import { prisma } from '../lib/prisma';
 import { HttpError } from '../lib/http';
 
-/** Folder lama untuk foto berbasis file (tetap dilayani demi kompatibilitas) */
-export const UPLOADS_DIR = path.resolve(__dirname, '../../uploads');
-if (!fs.existsSync(UPLOADS_DIR)) {
-  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+/** Folder lama untuk foto berbasis file (di Vercel pakai /tmp karena filesystem read-only) */
+export const UPLOADS_DIR = process.env.VERCEL
+  ? path.join(os.tmpdir(), 'temubarang-uploads')
+  : path.resolve(__dirname, '../../uploads');
+
+try {
+  if (!fs.existsSync(UPLOADS_DIR)) {
+    fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+  }
+} catch {
+  // abaikan pada filesystem read-only; foto baru disimpan di database
 }
 
 const ALLOWED_MIME = ['image/jpeg', 'image/png', 'image/webp'];
