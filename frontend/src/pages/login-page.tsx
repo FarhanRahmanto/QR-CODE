@@ -107,11 +107,6 @@ export function LoginPage() {
             </Button>
           </form>
 
-          <div className="rounded-2xl bg-muted/50 border border-border/50 p-3 text-[11px] text-muted-foreground leading-relaxed">
-            <span className="font-semibold text-foreground">Akun demo:</span> budi.santoso@example.com /
-            password123
-          </div>
-
           {/* Footer note */}
           <div className="pt-2 border-t border-border/50 text-center text-xs text-muted-foreground">
             Belum memiliki akun?{' '}
