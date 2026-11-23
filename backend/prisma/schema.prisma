@@ -1,5 +1,5 @@
-// Development memakai SQLite. Untuk produksi (PostgreSQL), Dockerfile otomatis
-// mengganti provider menjadi "postgresql" saat build.
+// Development memakai SQLite. Saat build production (Render/Docker),
+// scripts/prepare-prod-schema.mjs otomatis mengganti provider menjadi "postgresql".
 datasource db {
   provider = "sqlite"
   url      = env("DATABASE_URL")
@@ -12,9 +12,9 @@ generator client {
 model User {
   id        String   @id @default(cuid())
   name      String
-  phone     String   @unique
-  email     String?  @unique
-  password  String?
+  email     String   @unique // login: email + kata sandi
+  password  String
+  phone     String   @unique // wajib: dihubungi penemu via WhatsApp & notifikasi scan
   items     Item[]
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
@@ -27,7 +27,7 @@ model Item {
   owner          User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   ownerName      String
   itemName       String
-  photoUrl       String?
+  photoUrl       String?   // "/api/photos/{id}" atau URL eksternal
   description    String
   ownerMessage   String?
   status         String    @default("SAFE") // "SAFE" | "LOST"
@@ -68,14 +68,11 @@ model Scan {
   @@index([itemId])
 }
 
-// Kode OTP WhatsApp (disimpan dalam bentuk hash, berlaku 5 menit)
-model OtpCode {
+// Foto barang (WebP terkompresi) disimpan di database agar tidak hilang
+// di hosting tanpa disk permanen (mis. Render Free).
+model Photo {
   id        String   @id @default(cuid())
-  phone     String
-  codeHash  String
-  attempts  Int      @default(0)
-  expiresAt DateTime
+  data      Bytes
+  mimeType  String   @default("image/webp")
   createdAt DateTime @default(now())
-
-  @@index([phone])
 }
